@@ -217,12 +217,17 @@ broken. If Amazon blocks but Flipkart does not, set
 
 ### 2. Then enable the schedule
 
-`Track prices` runs at 02:00 and 14:00 UTC (07:30 and 19:30 IST), and can also
+`Track prices` runs every 6 hours (05:30, 11:30, 17:30, 23:30 IST) and can also
 be triggered by hand. GitHub's scheduler is best-effort and often late under
 load, which is fine for this.
 
-Budget: roughly 10 minutes a run, so about 600 of the 2,000 free monthly minutes
-a private repo gets. Going hourly would not fit.
+Actions minutes are unlimited on public repositories, so frequency is not
+limited by cost here. The limit that matters is politeness: each run is roughly
+60 page loads across two retailers, and scraping harder is how you get blocked.
+Four runs a day is already more than enough to catch real price moves.
+
+Nothing needs doing by hand. The schedule scrapes, commits the updated history,
+and redeploys the page on its own.
 
 ### How the data survives
 
@@ -265,17 +270,17 @@ every run, so versioning it would add roughly as much again for nothing.
 
 ### Seeing the dashboard
 
-Keep the repository **private**: a public one republishes scraped retailer data,
-which is what the etiquette note above asks you not to do.
+The workflow publishes `dashboard.html` to **GitHub Pages** after every run, so
+the site is always as fresh as the last scrape. No commit of the HTML is
+involved - it is staged as `_site/index.html` and deployed straight from the run.
 
-Each run uploads `dashboard.html` as a build artifact, downloadable from the run
-page for 30 days. That is free and private but clunky.
+This repository is **public**, which is what makes Pages free. That does mean the
+scraped prices and the list of tracked products are visible to anyone. If you
+later want it private, GitHub Pages for private repos needs a paid plan;
+Cloudflare Pages serves private repos for free instead.
 
-For a real URL, add a deploy step to the workflow - `upload-pages-artifact` plus
-`deploy-pages` publishes `data/dashboard.html` without committing it. GitHub
-Pages is free on public repos only (so the data becomes public); Cloudflare
-Pages serves from private repos for free, though the page itself is then
-reachable by anyone with the link.
+Locally, the desktop shortcut opens `data/dashboard.html` directly, which needs
+no server and works offline.
 
 ## Possible next steps
 

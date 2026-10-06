@@ -15,19 +15,22 @@
 # raw 281 KB of git objects, gzipped 945 KB. Roughly 40 MB/year as it stands.
 #
 # dashboard.html is not committed at all: it is regenerated from the database
-# every run, so it ships as a build artifact instead.
+# every run and published straight to GitHub Pages, so versioning it would just
+# double the repo growth for a file that is pure output.
 
 name: Track prices
 
 on:
   schedule:
-    # 02:00 and 14:00 UTC = 07:30 and 19:30 IST.
+    # Every 6 hours: 05:30, 11:30, 17:30 and 23:30 IST.
     # GitHub's scheduler is best-effort and often runs late under load.
-    - cron: '0 2,14 * * *'
+    - cron: '0 0,6,12,18 * * *'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write   # commit the price database back
+  pages: write      # publish the dashboard
+  id-token: write   # required by deploy-pages
 
 # A run can take ~10 minutes; never let two overlap and fight over the database.
 concurrency:
@@ -38,6 +41,10 @@ jobs:
   track:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - uses: actions/checkout@v4
@@ -82,9 +89,15 @@ jobs:
             git push
           fi
 
-      - name: Upload dashboard
-        uses: actions/upload-artifact@v4
-        with:
-          name: dashboard
-          path: data/dashboard.html
-          retention-days: 30
+      # Pages serves index.html from the root of the uploaded directory.
+      - name: Stage dashboard for Pages
+        run: |
+          mkdir -p _site
+          cp data/dashboard.html _site/index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
