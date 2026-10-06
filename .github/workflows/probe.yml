@@ -1,0 +1,35 @@
+# Run this FIRST, by hand, before relying on the scheduled workflow.
+#
+# It answers the one question that decides whether hosting this works at all:
+# can a GitHub runner's datacenter IP actually reach Flipkart and Amazon, or do
+# they serve a block page? Everything else about the setup is easy; this is not
+# guaranteed, so it is worth ten minutes before building on top of it.
+#
+# A red X here means a retailer is unusable from CI, not that the code is broken.
+
+name: Probe retailer access
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Check whether each retailer is reachable
+        run: python check_access.py

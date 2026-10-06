@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Chromium profile: ~140 MB, machine-specific, and holds cookies.
+data/browser-profile/
+
+data/tracker.log
+run.log
+
+# Derived from the database on every run, so there is no reason to version it.
+# CI uploads it as a build artifact instead.
+data/dashboard.html
+
+# data/prices.db is deliberately NOT ignored. Committing it back is how price
+# history survives between cloud runs, since CI runners start from a clean
+# filesystem every time. Measured cost: git delta-compresses SQLite well, about
+# 57 KB per run, so roughly 40 MB a year at two runs a day.

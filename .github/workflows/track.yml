@@ -1,0 +1,90 @@
+# Scheduled scrape. Only enable this once "Probe retailer access" passes.
+#
+# Price history is the whole point of this tool, and CI runners start from a
+# clean filesystem every run, so data/prices.db is committed back to the repo
+# after each scrape. That is also what keeps the repository active, which stops
+# GitHub disabling scheduled workflows after 60 days of inactivity.
+#
+# Deliberately not using actions/cache for the database: cache entries are
+# evicted after 7 days without a hit, which would quietly destroy the history.
+#
+# The database is committed raw, not gzipped. Git already zlib-compresses blobs,
+# and it delta-compresses SQLite files well between runs. Gzipping first makes
+# the file 4x smaller on disk but the repo 3.4x bigger, because compressed bytes
+# change wholesale on any edit and cannot be delta'd. Measured over 5 runs:
+# raw 281 KB of git objects, gzipped 945 KB. Roughly 40 MB/year as it stands.
+#
+# dashboard.html is not committed at all: it is regenerated from the database
+# every run, so it ships as a build artifact instead.
+
+name: Track prices
+
+on:
+  schedule:
+    # 02:00 and 14:00 UTC = 07:30 and 19:30 IST.
+    # GitHub's scheduler is best-effort and often runs late under load.
+    - cron: '0 2,14 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# A run can take ~10 minutes; never let two overlap and fight over the database.
+concurrency:
+  group: track-prices
+  cancel-in-progress: false
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Cache Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Scrape and rebuild dashboard
+        run: |
+          set -o pipefail
+          python run.py 2>&1 | tee run.log
+          # A block is a partial success: the run still exits 0 and other
+          # retailers still update, so surface it rather than letting the data
+          # quietly go stale.
+          if grep -qi "block/CAPTCHA" run.log; then
+            echo "::warning::A retailer served a block page; its data was not updated this run."
+          fi
+
+      - name: Commit updated price history
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/prices.db
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Price data $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
+
+      - name: Upload dashboard
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard
+          path: data/dashboard.html
+          retention-days: 30
