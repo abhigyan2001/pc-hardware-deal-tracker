@@ -91,7 +91,15 @@ Controls apply to both views:
   would need and what they cost in total, e.g. a 4 TB target from 1 TB drives
   is `4 × = ₹21,596`. Sort by **Storage ₹ per TB** or **Storage total for
   target** to rank them. Capacity is read from the listing title in drive-maker
-  units (1 TB = 1000 GB), and both respect any offer you have set.
+  units (1 TB = 1000 GB), and both respect any offer you have set. A drive type
+  filter shows internal drives, external/portable ones, or both, and external
+  drives carry a tag so they are not mistaken for internal ones in a ranking.
+- **RAM** - every listing shows its price per GB of the whole kit, so a 2x16 GB
+  kit and a 1x32 GB stick compare directly, along with its kit layout and rated
+  speed. Filter to desktop or laptop (SO-DIMM) memory, single sticks or 2-stick
+  kits, and a minimum speed, then sort by **RAM ₹ per GB**. A title with no kit
+  marker is taken as one stick, and a listing that states no speed is hidden
+  when a minimum speed is set.
 
 Settings persist in the browser's local storage, so they survive a dashboard
 regeneration. **Reset** clears them.

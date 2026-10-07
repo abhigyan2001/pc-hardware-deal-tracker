@@ -75,6 +75,8 @@ CATEGORIES = {
     },
     "ram": {
         "label": "RAM (DDR5)",
+        # Parse size, kit, speed and desktop/laptop from titles for ₹ per GB.
+        "ram_specs": True,
         "queries": ["ddr5 desktop ram", "ddr5 ram 32gb"],
         "require_groups": [["ddr5"]],
         "exclude_any": [
@@ -182,9 +184,71 @@ def max_capacity_gb(title: str, gb_per_tb: int = 1024) -> float:
     return best
 
 
+def is_ram(cfg: dict | None) -> bool:
+    """Categories whose titles carry RAM specs, which get price-per-GB."""
+    return bool(cfg and cfg.get("ram_specs"))
+
+
 def is_storage(cfg: dict | None) -> bool:
     """Categories sized by capacity, which get price-per-TB on the dashboard."""
     return bool(cfg and cfg.get("min_capacity_gb"))
+
+
+# "External DDR Cache Buffer" is an internal NVMe drive's spec sheet talking,
+# so external/portable only counts when it is not describing a cache.
+_EXTERNAL_RE = re.compile(r"\b(external|portable)\b(?!\s+(ddr|dram|cache))",
+                          re.IGNORECASE)
+
+
+def drive_form(title: str) -> str:
+    """'external' for portable/USB drives, else 'internal'. Drives sold as a
+    bare internal disk "with cover" count as external, which is what they are."""
+    return "external" if _EXTERNAL_RE.search(title) else "internal"
+
+
+# Kits are written "2x16GB", "2 x 16GB", "1 * 32 GB", "(2X24GB)" or "16GBx2".
+_KIT_RE = re.compile(r"(?<![\w.])([1-8])\s*[x×*]\s*(\d+)\s*gb\b", re.IGNORECASE)
+_KIT_REV_RE = re.compile(r"(?<![\w.])(\d+)\s*gb\s*[x×*]\s*([1-8])\b", re.IGNORECASE)
+_KIT_OF_RE = re.compile(r"\bkit of ([2-8])\b", re.IGNORECASE)
+# Speed as "6000MHz", "6000 MT/s", "DDR5-5600", "5600 DDR5", or a seller's
+# "6000HZ". Five-digit PC5-48000 bandwidth ratings are deliberately skipped.
+_MHZ_RES = [
+    re.compile(r"(?<![\w.])(\d{4})\s*(?:mhz|mt/s|hz)\b", re.IGNORECASE),
+    re.compile(r"\bddr5[-\s]?(\d{4})\b", re.IGNORECASE),
+    re.compile(r"(?<![\w.])(\d{4})\s+ddr5\b", re.IGNORECASE),
+]
+
+
+def ram_spec(title: str) -> dict:
+    """Total GB, stick count, rated speed and form factor of a RAM listing.
+
+    A title with no kit marker is taken as one stick: kits are a selling point
+    and are nearly always advertised. Flipkart's "(Dual Channel)" label is
+    ignored because it is attached to single sticks too. Speed is the highest
+    rating named ("4800MHz/5600MHZ" -> 5600), or None when there is none."""
+    sticks, per = 1, None
+    if m := _KIT_RE.search(title):
+        sticks, per = int(m.group(1)), float(m.group(2))
+    elif m := _KIT_REV_RE.search(title):
+        per, sticks = float(m.group(1)), int(m.group(2))
+    elif m := _KIT_OF_RE.search(title):
+        sticks = int(m.group(1))
+
+    total = sticks * per if per else max_capacity_gb(title)
+
+    speeds = [int(s) for rx in _MHZ_RES for s in rx.findall(title)]
+    speeds = [s for s in speeds if 3000 <= s <= 9999]
+
+    t = title.lower()
+    if re.search(r"so-?dimm", t):
+        form = "laptop"
+    elif re.search(r"u-?dimm|desktop", t):
+        form = "desktop"
+    else:
+        form = "laptop" if "laptop" in t else "desktop"
+
+    return {"gb": total or None, "sticks": sticks,
+            "mhz": max(speeds) if speeds else None, "form": form}
 
 
 def is_relevant(item: dict, cfg: dict | None) -> bool:

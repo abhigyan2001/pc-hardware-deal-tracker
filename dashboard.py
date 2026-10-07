@@ -129,6 +129,10 @@ TEMPLATE = r"""<!doctype html>
   .per-tb { color: var(--accent); font-weight: 600; }
   .best { display: inline-flex; flex-wrap: wrap; gap: 4px 14px; }
   .best a { color: var(--text); }
+  .form-tag {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--warn); background: var(--warn-bg); padding: 1px 6px; border-radius: 5px;
+  }
 </style>
 </head>
 <body>
@@ -156,6 +160,7 @@ TEMPLATE = r"""<!doctype html>
           <option value="recent">Recently seen</option>
           <option value="per_tb">Storage &#8377; per TB</option>
           <option value="target_total">Storage total for target</option>
+          <option value="per_gb">RAM &#8377; per GB</option>
         </select>
       </label>
       <label class="f">&#8377; min <input class="num" type="number" id="minPrice" min="0" step="500"></label>
@@ -176,7 +181,33 @@ TEMPLATE = r"""<!doctype html>
       <span class="offer-tag">Storage</span>
       <label class="f">Target <input class="num" type="number" id="target" min="0" step="any"></label>
       <select id="targetUnit" aria-label="Target unit"><option>TB</option><option>GB</option></select>
+      <select id="driveForm" aria-label="Drive type">
+        <option value="all">Internal &amp; external</option>
+        <option value="internal">Internal only</option>
+        <option value="external">External only</option>
+      </select>
       <span class="meta best" id="storageNote"></span>
+    </div>
+    <div class="ctl-row" id="ramRow">
+      <span class="offer-tag">RAM</span>
+      <select id="ramForm" aria-label="RAM type">
+        <option value="all">Desktop &amp; laptop</option>
+        <option value="desktop">Desktop only</option>
+        <option value="laptop">Laptop only</option>
+      </select>
+      <select id="ramKit" aria-label="Sticks">
+        <option value="any">Any kit</option>
+        <option value="1">Single stick</option>
+        <option value="2">2-stick kit</option>
+      </select>
+      <select id="ramMhz" aria-label="Minimum speed">
+        <option value="">Any speed</option>
+        <option value="5200">5200 MHz+</option>
+        <option value="5600">5600 MHz+</option>
+        <option value="6000">6000 MHz+</option>
+        <option value="6400">6400 MHz+</option>
+      </select>
+      <span class="meta best" id="ramNote"></span>
     </div>
     <div class="ctl-row" id="chips"></div>
   </div>
@@ -203,6 +234,7 @@ TEMPLATE = r"""<!doctype html>
           <th>Product</th><th>Category</th><th class="r">Price</th>
           <th class="r" id="thEff">After offer</th>
           <th class="r" id="thPerTb">&#8377; / TB</th><th class="r" id="thTarget">For target</th>
+          <th class="r" id="thPerGb">&#8377; / GB</th>
           <th class="r">Badge</th>
           <th class="r">Last drop</th><th class="r">Lowest seen</th>
           <th class="r">Obs</th><th>Tracked since</th><th>Last seen</th>
@@ -225,7 +257,8 @@ const DEFAULTS = {
   site: siteKeys[0], view: 'deals', cat: 'all', q: '', sort: 'default',
   minPrice: '', maxPrice: '', minOff: '',
   offerPct: '', offerCap: '', offerFlat: '',
-  target: '', targetUnit: 'TB',
+  target: '', targetUnit: 'TB', driveForm: 'all',
+  ramForm: 'all', ramKit: 'any', ramMhz: '',
   hideSus: false, showStale: false
 };
 const KEY = 'flipkart-deal-tracker/settings';
@@ -281,6 +314,12 @@ const unitsFor = (r) => isStorage(r) && targetGb()
 const targetTotal = (r) => unitsFor(r) == null ? null : unitsFor(r) * shownPrice(r);
 const fmtCap = (gb) => gb >= 1000 ? +(gb / 1000).toFixed(2) + ' TB' : +gb.toFixed(0) + ' GB';
 const targetLabel = () => fmtCap(targetGb());
+
+// RAM: price per GB of the whole listing, so a 2x16 kit and a 1x32 stick
+// compare directly.
+const RAM = new Set(DATA.ram_categories);
+const isRam = (r) => RAM.has(r.category) && r.ram_gb > 0;
+const perGb = (r) => isRam(r) ? shownPrice(r) / r.ram_gb : null;
 // Ascending sort with non-storage rows (null) always at the bottom.
 const nullsLast = (f) => (a, b) => {
   const x = f(a), y = f(b);
@@ -295,6 +334,15 @@ function passes(r, ignoreCat) {
   if (!ignoreCat && state.cat !== 'all' && r.category !== state.cat) return false;
   if (state.q && !r.title.toLowerCase().includes(state.q)) return false;
   if (state.hideSus && r.suspicious_mrp) return false;
+  // Form-factor filters only narrow their own category; other rows pass.
+  if (STORAGE.has(r.category) && state.driveForm !== 'all' && r.form !== state.driveForm) return false;
+  if (RAM.has(r.category)) {
+    if (state.ramForm !== 'all' && r.form !== state.ramForm) return false;
+    if (state.ramKit !== 'any' && r.ram_sticks !== +state.ramKit) return false;
+    // A listing with no stated speed cannot be shown to meet a minimum.
+    const mhz = num(state.ramMhz);
+    if (mhz && !(r.ram_mhz >= mhz)) return false;
+  }
   const lo = num(state.minPrice), hi = num(state.maxPrice), off = num(state.minOff);
   const p = shownPrice(r);
   if (lo != null && p < lo) return false;
@@ -311,6 +359,7 @@ const SORTS = {
   badge_pct:  (a, b) => (b.badge_pct || 0) - (a.badge_pct || 0),
   recent:     (a, b) => String(b.last_seen).localeCompare(String(a.last_seen)),
   per_tb:     nullsLast(perTb),
+  per_gb:     nullsLast(perGb),
   // Without a target this is the same ranking as per TB.
   target_total: (a, b) => targetGb() ? nullsLast(targetTotal)(a, b) : nullsLast(perTb)(a, b)
 };
@@ -345,7 +394,17 @@ function storageLine(r) {
   const n = unitsFor(r);
   return `<div class="meta"><span class="per-tb">${inr(perTb(r))}/TB</span>
     &middot; ${fmtCap(r.capacity_gb)}
+    ${r.form === 'external' ? ' <span class="form-tag">external</span>' : ''}
     ${n != null ? ` &middot; ${n} &times; = <b>${inr(targetTotal(r))}</b> for ${targetLabel()}` : ''}</div>`;
+}
+
+function ramLine(r) {
+  if (!isRam(r)) return '';
+  const kit = r.ram_sticks > 1 ? ` (${r.ram_sticks}&times;${+(r.ram_gb / r.ram_sticks).toFixed(1)})` : '';
+  return `<div class="meta"><span class="per-tb">${inr(perGb(r))}/GB</span>
+    &middot; ${+r.ram_gb.toFixed(1)} GB${kit}
+    ${r.ram_mhz ? ` &middot; ${r.ram_mhz} MHz` : ''}
+    ${r.form === 'laptop' ? ' <span class="form-tag">laptop</span>' : ''}</div>`;
 }
 
 function rowHtml(r, mode) {
@@ -365,6 +424,7 @@ function rowHtml(r, mode) {
         ${r.is_low && mode === 'drop' ? '<span class="low">lowest seen</span>' : ''}
         ${r.stale ? '<span class="stale">stale</span>' : ''}</div>
       ${storageLine(r)}
+      ${ramLine(r)}
       <div class="meta"><span class="tag">${esc(cats[r.category] || r.category)}</span>
         ${r.rating ? ' &middot; ' + r.rating + '★' : ''}
         ${mode === 'drop' ? ' &middot; ' + r.observations + ' observations' : ''}</div>
@@ -393,6 +453,8 @@ function renderTracked(list) {
   const thT = document.getElementById('thTarget');
   thT.hidden = !showTarget;
   if (showTarget) thT.textContent = `For ${targetLabel()}`;
+  const showGb = list.some(isRam);
+  document.getElementById('thPerGb').hidden = !showGb;
   document.getElementById('trackedBody').innerHTML = shown.map(r => `
     <tr class="${r.stale ? 'is-stale' : ''}">
       <td class="name"><a class="title" href="${esc(r.url)}" target="_blank"
@@ -403,6 +465,7 @@ function renderTracked(list) {
       <td class="r per-tb" ${showTb ? '' : 'hidden'}>${isStorage(r) ? inr(perTb(r)) : '-'}</td>
       <td class="r" ${showTarget ? '' : 'hidden'}>${unitsFor(r) != null
           ? `${unitsFor(r)} &times; = ${inr(targetTotal(r))}` : '-'}</td>
+      <td class="r per-tb" ${showGb ? '' : 'hidden'}>${isRam(r) ? inr(perGb(r)) : '-'}</td>
       <td class="r">${r.badge_pct != null
           ? `<span class="badge ${r.suspicious_mrp ? 'warn' : 'drop'}">${r.badge_pct}%</span>` : '-'}</td>
       <td class="r">${r.drop_pct != null
@@ -487,6 +550,20 @@ function paintStorage() {
     ? parts.join('') : 'No storage listings match these filters.';
 }
 
+// Cheapest RAM per GB under the current RAM filters, mirroring the storage note.
+function paintRam() {
+  const row = document.getElementById('ramRow');
+  row.hidden = state.cat !== 'all' && !RAM.has(state.cat);
+  if (row.hidden) return;
+  const best = rows.filter(r => passes(r, true) && isRam(r)).sort(nullsLast(perGb))[0];
+  document.getElementById('ramNote').innerHTML = best
+    ? `Cheapest per GB: <span class="per-tb">${inr(perGb(best))}/GB</span>`
+      + ` (${+best.ram_gb.toFixed(1)} GB for ${inr(shownPrice(best))})`
+      + ` &middot; <a href="${esc(best.url)}" target="_blank" rel="noopener"
+          title="${esc(best.title)}">${esc(best.title.slice(0, 40))}&hellip;</a>`
+    : 'No RAM listings match these filters.';
+}
+
 function render() {
   document.getElementById('tab-deals').setAttribute('aria-selected', state.view === 'deals');
   document.getElementById('tab-tracked').setAttribute('aria-selected', state.view === 'tracked');
@@ -503,6 +580,7 @@ function render() {
   paintSiteTabs();
   paintChips();
   paintStorage();
+  paintRam();
 
   const siteRows = rows.filter(r => r.source === state.site);
   const siteName = siteLabels[state.site];
@@ -530,7 +608,7 @@ function render() {
   if (state.view === 'tracked') {
     if (noSiteData) {
       document.getElementById('trackedBody').innerHTML =
-        `<tr><td colspan="12">${noDataHtml}</td></tr>`;
+        `<tr><td colspan="13">${noDataHtml}</td></tr>`;
       document.getElementById('trackedMore').innerHTML = '';
       document.getElementById('trackedSub').textContent =
         `Nothing tracked for ${siteName} yet.`;
@@ -583,6 +661,10 @@ bind('offerCap', 'offerCap');
 bind('offerFlat', 'offerFlat');
 bind('target', 'target');
 bind('targetUnit', 'targetUnit');
+bind('driveForm', 'driveForm');
+bind('ramForm', 'ramForm');
+bind('ramKit', 'ramKit');
+bind('ramMhz', 'ramMhz');
 bind('hideSus', 'hideSus', 'check');
 bind('showStale', 'showStale', 'check');
 
@@ -595,7 +677,8 @@ document.getElementById('reset').onclick = () => {
   for (const [id, prop] of [['q','q'],['sort','sort'],['minPrice','minPrice'],
       ['maxPrice','maxPrice'],['minOff','minOff'],['offerPct','offerPct'],
       ['offerCap','offerCap'],['offerFlat','offerFlat'],
-      ['target','target'],['targetUnit','targetUnit']]) {
+      ['target','target'],['targetUnit','targetUnit'],['driveForm','driveForm'],
+      ['ramForm','ramForm'],['ramKit','ramKit'],['ramMhz','ramMhz']]) {
     document.getElementById(id).value = DEFAULTS[prop];
   }
   document.getElementById('hideSus').checked = false;
@@ -615,6 +698,7 @@ def render(rows: list[dict], stats: dict, out_path=None) -> str:
     out_path = out_path or config.DASHBOARD_PATH
     categories = {k: v["label"] for k, v in config.CATEGORIES.items()}
     storage = [k for k, v in config.CATEGORIES.items() if config.is_storage(v)]
+    ram = [k for k, v in config.CATEGORIES.items() if config.is_ram(v)]
     stats = dict(stats, stale_after_hours=config.STALE_AFTER_HOURS)
 
     # Enabled sites first, then any other retailer still present in stored data
@@ -625,7 +709,8 @@ def render(rows: list[dict], stats: dict, out_path=None) -> str:
 
     payload = json.dumps(
         {"rows": rows, "stats": stats, "categories": categories,
-         "sites": site_labels, "storage_categories": storage},
+         "sites": site_labels, "storage_categories": storage,
+         "ram_categories": ram},
         ensure_ascii=False,
         separators=(",", ":"),
     ).replace("</", "<\\/")

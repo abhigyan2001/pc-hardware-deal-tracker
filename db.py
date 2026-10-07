@@ -180,6 +180,11 @@ def build_rows(conn) -> list[dict]:
         # Decimal units, as drives are sold, so "1000 GB" and "1 TB" compare equal.
         capacity = (config.max_capacity_gb(p["title"] or "", gb_per_tb=1000)
                     if config.is_storage(cfg) else 0)
+        # Form factor keeps comparisons like-for-like: internal vs external
+        # drives, desktop vs laptop RAM.
+        ram = config.ram_spec(p["title"] or "") if config.is_ram(cfg) else {}
+        form = (config.drive_form(p["title"] or "") if config.is_storage(cfg)
+                else ram.get("form"))
 
         prev = points[-2]["price"] if len(points) >= 2 else None
         drop_abs = (prev - price) if prev and prev > price else None
@@ -210,6 +215,10 @@ def build_rows(conn) -> list[dict]:
             "rating": p["rating"],
             "price": price,
             "capacity_gb": capacity or None,
+            "form": form,
+            "ram_gb": ram.get("gb"),
+            "ram_sticks": ram.get("sticks"),
+            "ram_mhz": ram.get("mhz"),
             "mrp": mrp,
             "badge_pct": badge,
             "prev_price": prev,
