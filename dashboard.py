@@ -126,6 +126,9 @@ TEMPLATE = r"""<!doctype html>
   td.r, th.r { text-align: right; }
   td.name { white-space: normal; min-width: 280px; max-width: 460px; }
   tr.is-stale td { opacity: .55; }
+  .per-tb { color: var(--accent); font-weight: 600; }
+  .best { display: inline-flex; flex-wrap: wrap; gap: 4px 14px; }
+  .best a { color: var(--text); }
 </style>
 </head>
 <body>
@@ -151,6 +154,8 @@ TEMPLATE = r"""<!doctype html>
           <option value="drop_abs">Real drop &#8377;</option>
           <option value="badge_pct">Badge discount %</option>
           <option value="recent">Recently seen</option>
+          <option value="per_tb">Storage &#8377; per TB</option>
+          <option value="target_total">Storage total for target</option>
         </select>
       </label>
       <label class="f">&#8377; min <input class="num" type="number" id="minPrice" min="0" step="500"></label>
@@ -166,6 +171,12 @@ TEMPLATE = r"""<!doctype html>
       <label class="f">capped at &#8377; <input class="num" type="number" id="offerCap" min="0" step="100"></label>
       <label class="f">plus flat &#8377; <input class="num" type="number" id="offerFlat" min="0" step="100"></label>
       <span class="meta" id="offerNote"></span>
+    </div>
+    <div class="ctl-row" id="storageRow">
+      <span class="offer-tag">Storage</span>
+      <label class="f">Target <input class="num" type="number" id="target" min="0" step="any"></label>
+      <select id="targetUnit" aria-label="Target unit"><option>TB</option><option>GB</option></select>
+      <span class="meta best" id="storageNote"></span>
     </div>
     <div class="ctl-row" id="chips"></div>
   </div>
@@ -190,7 +201,9 @@ TEMPLATE = r"""<!doctype html>
       <div class="tablewrap"><table>
         <thead><tr>
           <th>Product</th><th>Category</th><th class="r">Price</th>
-          <th class="r" id="thEff">After offer</th><th class="r">Badge</th>
+          <th class="r" id="thEff">After offer</th>
+          <th class="r" id="thPerTb">&#8377; / TB</th><th class="r" id="thTarget">For target</th>
+          <th class="r">Badge</th>
           <th class="r">Last drop</th><th class="r">Lowest seen</th>
           <th class="r">Obs</th><th>Tracked since</th><th>Last seen</th>
         </tr></thead>
@@ -212,6 +225,7 @@ const DEFAULTS = {
   site: siteKeys[0], view: 'deals', cat: 'all', q: '', sort: 'default',
   minPrice: '', maxPrice: '', minOff: '',
   offerPct: '', offerCap: '', offerFlat: '',
+  target: '', targetUnit: 'TB',
   hideSus: false, showStale: false
 };
 const KEY = 'flipkart-deal-tracker/settings';
@@ -250,6 +264,30 @@ function effective(r) {
 }
 const shownPrice = (r) => offerActive() ? effective(r) : r.price;
 
+// Storage maths, in decimal units as drives are sold (1 TB = 1000 GB), so a
+// "1000 GB" and a "1 TB" listing compare equal. A 4 TB target from 128 GB
+// sticks needs 32 of them. Prices follow the offer fields, so per-TB and
+// totals reflect what you would actually pay.
+const STORAGE = new Set(DATA.storage_categories);
+const isStorage = (r) => STORAGE.has(r.category) && r.capacity_gb > 0;
+const perTb = (r) => isStorage(r) ? shownPrice(r) / (r.capacity_gb / 1000) : null;
+const targetGb = () => {
+  const t = num(state.target);
+  return t > 0 ? t * (state.targetUnit === 'GB' ? 1 : 1000) : null;
+};
+// The small tolerance keeps float noise from buying one drive too many.
+const unitsFor = (r) => isStorage(r) && targetGb()
+  ? Math.max(1, Math.ceil(targetGb() / r.capacity_gb - 1e-9)) : null;
+const targetTotal = (r) => unitsFor(r) == null ? null : unitsFor(r) * shownPrice(r);
+const fmtCap = (gb) => gb >= 1000 ? +(gb / 1000).toFixed(2) + ' TB' : +gb.toFixed(0) + ' GB';
+const targetLabel = () => fmtCap(targetGb());
+// Ascending sort with non-storage rows (null) always at the bottom.
+const nullsLast = (f) => (a, b) => {
+  const x = f(a), y = f(b);
+  if (x == null || y == null) return (x == null) - (y == null);
+  return x - y;
+};
+
 function passes(r, ignoreCat) {
   // Retailers are mutually exclusive: the selected tab is the only one shown.
   if (r.source !== state.site) return false;
@@ -271,7 +309,10 @@ const SORTS = {
   drop_pct:   (a, b) => (b.drop_pct || 0) - (a.drop_pct || 0),
   drop_abs:   (a, b) => (b.drop_abs || 0) - (a.drop_abs || 0),
   badge_pct:  (a, b) => (b.badge_pct || 0) - (a.badge_pct || 0),
-  recent:     (a, b) => String(b.last_seen).localeCompare(String(a.last_seen))
+  recent:     (a, b) => String(b.last_seen).localeCompare(String(a.last_seen)),
+  per_tb:     nullsLast(perTb),
+  // Without a target this is the same ranking as per TB.
+  target_total: (a, b) => targetGb() ? nullsLast(targetTotal)(a, b) : nullsLast(perTb)(a, b)
 };
 
 function sorted(list, fallbackKey) {
@@ -299,6 +340,14 @@ function priceLine(r, mode) {
   return `<span class="price">${inr(r.price)}</span>${was}${eff}`;
 }
 
+function storageLine(r) {
+  if (!isStorage(r)) return '';
+  const n = unitsFor(r);
+  return `<div class="meta"><span class="per-tb">${inr(perTb(r))}/TB</span>
+    &middot; ${fmtCap(r.capacity_gb)}
+    ${n != null ? ` &middot; ${n} &times; = <b>${inr(targetTotal(r))}</b> for ${targetLabel()}` : ''}</div>`;
+}
+
 function rowHtml(r, mode) {
   const img = r.image ? `<img src="${esc(r.image)}" alt="" loading="lazy">` : '';
   const right = mode === 'drop'
@@ -315,6 +364,7 @@ function rowHtml(r, mode) {
       <div>${priceLine(r, mode)}
         ${r.is_low && mode === 'drop' ? '<span class="low">lowest seen</span>' : ''}
         ${r.stale ? '<span class="stale">stale</span>' : ''}</div>
+      ${storageLine(r)}
       <div class="meta"><span class="tag">${esc(cats[r.category] || r.category)}</span>
         ${r.rating ? ' &middot; ' + r.rating + '★' : ''}
         ${mode === 'drop' ? ' &middot; ' + r.observations + ' observations' : ''}</div>
@@ -338,6 +388,11 @@ function renderPanel(el, list, mode, key, emptyHtml) {
 function renderTracked(list) {
   const shown = list.slice(0, limits.tracked);
   document.getElementById('thEff').hidden = !offerActive();
+  const showTb = list.some(isStorage), showTarget = showTb && targetGb() != null;
+  document.getElementById('thPerTb').hidden = !showTb;
+  const thT = document.getElementById('thTarget');
+  thT.hidden = !showTarget;
+  if (showTarget) thT.textContent = `For ${targetLabel()}`;
   document.getElementById('trackedBody').innerHTML = shown.map(r => `
     <tr class="${r.stale ? 'is-stale' : ''}">
       <td class="name"><a class="title" href="${esc(r.url)}" target="_blank"
@@ -345,6 +400,9 @@ function renderTracked(list) {
       <td><span class="tag">${esc(cats[r.category] || r.category)}</span></td>
       <td class="r">${inr(r.price)}</td>
       ${offerActive() ? `<td class="r eff">${inr(effective(r))}</td>` : '<td class="r" hidden></td>'}
+      <td class="r per-tb" ${showTb ? '' : 'hidden'}>${isStorage(r) ? inr(perTb(r)) : '-'}</td>
+      <td class="r" ${showTarget ? '' : 'hidden'}>${unitsFor(r) != null
+          ? `${unitsFor(r)} &times; = ${inr(targetTotal(r))}` : '-'}</td>
       <td class="r">${r.badge_pct != null
           ? `<span class="badge ${r.suspicious_mrp ? 'warn' : 'drop'}">${r.badge_pct}%</span>` : '-'}</td>
       <td class="r">${r.drop_pct != null
@@ -407,6 +465,28 @@ function paintChips() {
   for (const [k, label] of Object.entries(cats)) el.appendChild(mk(k, label, counts[k] || 0));
 }
 
+// Cheapest SSD vs cheapest HDD under the current filters, whichever category
+// chip is selected, so the two can be compared side by side.
+function paintStorage() {
+  const row = document.getElementById('storageRow');
+  row.hidden = state.cat !== 'all' && !STORAGE.has(state.cat);
+  if (row.hidden) return;
+  const base = rows.filter(r => passes(r, true) && isStorage(r));
+  const key = targetGb() ? targetTotal : perTb;
+  const parts = [];
+  for (const c of STORAGE) {
+    const best = base.filter(r => r.category === c).sort(nullsLast(key))[0];
+    if (!best) continue;
+    const name = esc((cats[c] || c).replace(/\s*\(.*\)$/, ''));
+    parts.push(`<span>Cheapest ${name}: <span class="per-tb">${inr(perTb(best))}/TB</span>`
+      + (targetGb() ? ` (${unitsFor(best)} &times; = <b>${inr(targetTotal(best))}</b>)` : '')
+      + ` &middot; <a href="${esc(best.url)}" target="_blank" rel="noopener"
+          title="${esc(best.title)}">${esc(best.title.slice(0, 40))}&hellip;</a></span>`);
+  }
+  document.getElementById('storageNote').innerHTML = parts.length
+    ? parts.join('') : 'No storage listings match these filters.';
+}
+
 function render() {
   document.getElementById('tab-deals').setAttribute('aria-selected', state.view === 'deals');
   document.getElementById('tab-tracked').setAttribute('aria-selected', state.view === 'tracked');
@@ -422,6 +502,7 @@ function render() {
 
   paintSiteTabs();
   paintChips();
+  paintStorage();
 
   const siteRows = rows.filter(r => r.source === state.site);
   const siteName = siteLabels[state.site];
@@ -449,7 +530,7 @@ function render() {
   if (state.view === 'tracked') {
     if (noSiteData) {
       document.getElementById('trackedBody').innerHTML =
-        `<tr><td colspan="10">${noDataHtml}</td></tr>`;
+        `<tr><td colspan="12">${noDataHtml}</td></tr>`;
       document.getElementById('trackedMore').innerHTML = '';
       document.getElementById('trackedSub').textContent =
         `Nothing tracked for ${siteName} yet.`;
@@ -500,6 +581,8 @@ bind('minOff', 'minOff');
 bind('offerPct', 'offerPct');
 bind('offerCap', 'offerCap');
 bind('offerFlat', 'offerFlat');
+bind('target', 'target');
+bind('targetUnit', 'targetUnit');
 bind('hideSus', 'hideSus', 'check');
 bind('showStale', 'showStale', 'check');
 
@@ -511,7 +594,8 @@ document.getElementById('reset').onclick = () => {
   save();
   for (const [id, prop] of [['q','q'],['sort','sort'],['minPrice','minPrice'],
       ['maxPrice','maxPrice'],['minOff','minOff'],['offerPct','offerPct'],
-      ['offerCap','offerCap'],['offerFlat','offerFlat']]) {
+      ['offerCap','offerCap'],['offerFlat','offerFlat'],
+      ['target','target'],['targetUnit','targetUnit']]) {
     document.getElementById(id).value = DEFAULTS[prop];
   }
   document.getElementById('hideSus').checked = false;
@@ -530,6 +614,7 @@ render();
 def render(rows: list[dict], stats: dict, out_path=None) -> str:
     out_path = out_path or config.DASHBOARD_PATH
     categories = {k: v["label"] for k, v in config.CATEGORIES.items()}
+    storage = [k for k, v in config.CATEGORIES.items() if config.is_storage(v)]
     stats = dict(stats, stale_after_hours=config.STALE_AFTER_HOURS)
 
     # Enabled sites first, then any other retailer still present in stored data
@@ -540,7 +625,7 @@ def render(rows: list[dict], stats: dict, out_path=None) -> str:
 
     payload = json.dumps(
         {"rows": rows, "stats": stats, "categories": categories,
-         "sites": site_labels},
+         "sites": site_labels, "storage_categories": storage},
         ensure_ascii=False,
         separators=(",", ":"),
     ).replace("</", "<\\/")
