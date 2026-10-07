@@ -180,6 +180,7 @@ def build_rows(conn) -> list[dict]:
         # Decimal units, as drives are sold, so "1000 GB" and "1 TB" compare equal.
         capacity = (config.max_capacity_gb(p["title"] or "", gb_per_tb=1000)
                     if config.is_storage(cfg) else 0)
+        movement = config.watch_movement(p["title"] or "") if config.is_watch(cfg) else None
 
         prev = points[-2]["price"] if len(points) >= 2 else None
         drop_abs = (prev - price) if prev and prev > price else None
@@ -210,6 +211,7 @@ def build_rows(conn) -> list[dict]:
             "rating": p["rating"],
             "price": price,
             "capacity_gb": capacity or None,
+            "movement": movement,
             "mrp": mrp,
             "badge_pct": badge,
             "prev_price": prev,

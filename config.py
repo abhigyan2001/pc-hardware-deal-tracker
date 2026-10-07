@@ -160,6 +160,23 @@ CATEGORIES = {
         ],
         "min_price": 1500,
     },
+    # Not PC hardware, but tracked the same way. Wristwatches only: smart
+    # watches are already rejected by GLOBAL_EXCLUDE, and the floor keeps out
+    # the ₹299 fashion listings that flood these searches.
+    "watch": {
+        "label": "Watches",
+        "queries": ["automatic watch men", "mechanical watch",
+                    "analog watch men", "solar watch"],
+        "require_groups": [["watch", "chronograph"]],
+        "exclude_any": [
+            "strap", "band only", "watch box", "watch winder", "winder",
+            "wall clock", "table clock", "repair", "tool kit",
+            "screen guard", "protector", "kids", "toy", "fitness band",
+            "smart band", "bluetooth calling", "combo of", "pack of",
+        ],
+        "min_price": 2000,
+        "watch_specs": True,
+    },
 }
 
 # The lookbehind stops model numbers being read as sizes ("GP-AG42TB" is a
@@ -180,6 +197,34 @@ def max_capacity_gb(title: str, gb_per_tb: int = 1024) -> float:
         gb = float(amount) * (gb_per_tb if unit.lower() == "tb" else 1)
         best = max(best, gb)
     return best
+
+
+def is_watch(cfg: dict | None) -> bool:
+    """Categories whose titles name a watch movement."""
+    return bool(cfg and cfg.get("watch_specs"))
+
+
+# Checked in order, so a title that says "automatic mechanical" is automatic,
+# and an automatic that also mentions a quartz alternative is still automatic.
+_MOVEMENTS = [
+    # "Automatic Calendar" or "automatic date" is a quartz feature, not a movement.
+    ("automatic", re.compile(r"\bautomatic\b(?!\s+(calendar|date|day))|self[- ]?winding"
+                             r"|\bauto[- ]?wind", re.I)),
+    ("handwound", re.compile(r"hand[- ]?wound|hand[- ]?wind|manual[- ]?wind|\bmechanical\b", re.I)),
+    ("solar", re.compile(r"\bsolar\b|eco[- ]?drive", re.I)),
+    ("kinetic", re.compile(r"\bkinetic\b", re.I)),
+    ("quartz", re.compile(r"\bquartz\b", re.I)),
+]
+
+
+def watch_movement(title: str) -> str | None:
+    """'automatic', 'handwound', 'solar', 'kinetic' or 'quartz', or None when
+    the title does not say. Most "analog watch" listings that name no movement
+    are quartz, but that is left unknown rather than guessed."""
+    for name, rx in _MOVEMENTS:
+        if rx.search(title):
+            return name
+    return None
 
 
 def is_storage(cfg: dict | None) -> bool:

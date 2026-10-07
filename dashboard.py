@@ -129,6 +129,10 @@ TEMPLATE = r"""<!doctype html>
   .per-tb { color: var(--accent); font-weight: 600; }
   .best { display: inline-flex; flex-wrap: wrap; gap: 4px 14px; }
   .best a { color: var(--text); }
+  .move-tag {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--offer); background: var(--offer-bg); padding: 1px 6px; border-radius: 5px;
+  }
 </style>
 </head>
 <body>
@@ -178,6 +182,18 @@ TEMPLATE = r"""<!doctype html>
       <select id="targetUnit" aria-label="Target unit"><option>TB</option><option>GB</option></select>
       <span class="meta best" id="storageNote"></span>
     </div>
+    <div class="ctl-row" id="watchRow">
+      <span class="offer-tag">Watches</span>
+      <select id="movement" aria-label="Movement">
+        <option value="any">Any movement</option>
+        <option value="mechanical">Mechanical (automatic or hand-wound)</option>
+        <option value="automatic">Automatic</option>
+        <option value="handwound">Hand-wound</option>
+        <option value="solar">Solar</option>
+        <option value="quartz">Quartz</option>
+      </select>
+      <span class="meta best" id="watchNote"></span>
+    </div>
     <div class="ctl-row" id="chips"></div>
   </div>
 
@@ -225,7 +241,7 @@ const DEFAULTS = {
   site: siteKeys[0], view: 'deals', cat: 'all', q: '', sort: 'default',
   minPrice: '', maxPrice: '', minOff: '',
   offerPct: '', offerCap: '', offerFlat: '',
-  target: '', targetUnit: 'TB',
+  target: '', targetUnit: 'TB', movement: 'any',
   hideSus: false, showStale: false
 };
 const KEY = 'flipkart-deal-tracker/settings';
@@ -281,6 +297,13 @@ const unitsFor = (r) => isStorage(r) && targetGb()
 const targetTotal = (r) => unitsFor(r) == null ? null : unitsFor(r) * shownPrice(r);
 const fmtCap = (gb) => gb >= 1000 ? +(gb / 1000).toFixed(2) + ' TB' : +gb.toFixed(0) + ' GB';
 const targetLabel = () => fmtCap(targetGb());
+
+// Watches: movement read from the title, or null when the title doesn't say.
+const WATCH = new Set(DATA.watch_categories);
+const MOVEMENT_LABELS = { automatic: 'automatic', handwound: 'hand-wound',
+  solar: 'solar', kinetic: 'kinetic', quartz: 'quartz' };
+const movementMatches = (m) => state.movement === 'any' || m === state.movement
+  || (state.movement === 'mechanical' && (m === 'automatic' || m === 'handwound'));
 // Ascending sort with non-storage rows (null) always at the bottom.
 const nullsLast = (f) => (a, b) => {
   const x = f(a), y = f(b);
@@ -295,6 +318,8 @@ function passes(r, ignoreCat) {
   if (!ignoreCat && state.cat !== 'all' && r.category !== state.cat) return false;
   if (state.q && !r.title.toLowerCase().includes(state.q)) return false;
   if (state.hideSus && r.suspicious_mrp) return false;
+  // The movement filter only narrows watches; other categories pass.
+  if (WATCH.has(r.category) && !movementMatches(r.movement)) return false;
   const lo = num(state.minPrice), hi = num(state.maxPrice), off = num(state.minOff);
   const p = shownPrice(r);
   if (lo != null && p < lo) return false;
@@ -365,6 +390,7 @@ function rowHtml(r, mode) {
         ${r.is_low && mode === 'drop' ? '<span class="low">lowest seen</span>' : ''}
         ${r.stale ? '<span class="stale">stale</span>' : ''}</div>
       ${storageLine(r)}
+      ${r.movement ? `<div class="meta"><span class="move-tag">${esc(MOVEMENT_LABELS[r.movement] || r.movement)}</span></div>` : ''}
       <div class="meta"><span class="tag">${esc(cats[r.category] || r.category)}</span>
         ${r.rating ? ' &middot; ' + r.rating + '★' : ''}
         ${mode === 'drop' ? ' &middot; ' + r.observations + ' observations' : ''}</div>
@@ -487,6 +513,26 @@ function paintStorage() {
     ? parts.join('') : 'No storage listings match these filters.';
 }
 
+// How many watches of each movement the current filters leave, so the
+// selector's effect is visible before choosing.
+function paintWatch() {
+  const row = document.getElementById('watchRow');
+  row.hidden = state.cat !== 'all' && !WATCH.has(state.cat);
+  if (row.hidden) return;
+  const saved = state.movement;
+  state.movement = 'any';
+  const base = rows.filter(r => passes(r, true) && WATCH.has(r.category));
+  state.movement = saved;
+  const counts = {};
+  for (const r of base) counts[r.movement || 'unknown'] = (counts[r.movement || 'unknown'] || 0) + 1;
+  const order = ['automatic', 'handwound', 'solar', 'kinetic', 'quartz', 'unknown'];
+  const parts = order.filter(k => counts[k]).map(k =>
+    `${counts[k]} ${k === 'unknown' ? 'not stated' : MOVEMENT_LABELS[k]}`);
+  document.getElementById('watchNote').textContent = base.length
+    ? `${base.length} watches: ${parts.join(', ')}.`
+    : 'No watches match these filters yet.';
+}
+
 function render() {
   document.getElementById('tab-deals').setAttribute('aria-selected', state.view === 'deals');
   document.getElementById('tab-tracked').setAttribute('aria-selected', state.view === 'tracked');
@@ -503,6 +549,7 @@ function render() {
   paintSiteTabs();
   paintChips();
   paintStorage();
+  paintWatch();
 
   const siteRows = rows.filter(r => r.source === state.site);
   const siteName = siteLabels[state.site];
@@ -583,6 +630,7 @@ bind('offerCap', 'offerCap');
 bind('offerFlat', 'offerFlat');
 bind('target', 'target');
 bind('targetUnit', 'targetUnit');
+bind('movement', 'movement');
 bind('hideSus', 'hideSus', 'check');
 bind('showStale', 'showStale', 'check');
 
@@ -595,7 +643,7 @@ document.getElementById('reset').onclick = () => {
   for (const [id, prop] of [['q','q'],['sort','sort'],['minPrice','minPrice'],
       ['maxPrice','maxPrice'],['minOff','minOff'],['offerPct','offerPct'],
       ['offerCap','offerCap'],['offerFlat','offerFlat'],
-      ['target','target'],['targetUnit','targetUnit']]) {
+      ['target','target'],['targetUnit','targetUnit'],['movement','movement']]) {
     document.getElementById(id).value = DEFAULTS[prop];
   }
   document.getElementById('hideSus').checked = false;
@@ -615,6 +663,7 @@ def render(rows: list[dict], stats: dict, out_path=None) -> str:
     out_path = out_path or config.DASHBOARD_PATH
     categories = {k: v["label"] for k, v in config.CATEGORIES.items()}
     storage = [k for k, v in config.CATEGORIES.items() if config.is_storage(v)]
+    watch = [k for k, v in config.CATEGORIES.items() if config.is_watch(v)]
     stats = dict(stats, stale_after_hours=config.STALE_AFTER_HOURS)
 
     # Enabled sites first, then any other retailer still present in stored data
@@ -625,7 +674,8 @@ def render(rows: list[dict], stats: dict, out_path=None) -> str:
 
     payload = json.dumps(
         {"rows": rows, "stats": stats, "categories": categories,
-         "sites": site_labels, "storage_categories": storage},
+         "sites": site_labels, "storage_categories": storage,
+         "watch_categories": watch},
         ensure_ascii=False,
         separators=(",", ":"),
     ).replace("</", "<\\/")

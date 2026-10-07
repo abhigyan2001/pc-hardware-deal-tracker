@@ -19,6 +19,7 @@ and any scheduled task point at this path.)
 | Processors | AM5 socket only (Ryzen 7000 / 8000 / 9000) |
 | Graphics Cards | all |
 | Liquid Coolers | all (AIO / liquid, not room coolers) |
+| Watches | wristwatches from ₹2,000, no smartwatches, straps or winders |
 
 ## The one thing worth understanding
 
@@ -92,6 +93,12 @@ Controls apply to both views:
   is `4 × = ₹21,596`. Sort by **Storage ₹ per TB** or **Storage total for
   target** to rank them. Capacity is read from the listing title in drive-maker
   units (1 TB = 1000 GB), and both respect any offer you have set.
+
+- **Watches** - each watch is tagged with its movement when the title names
+  one (automatic, hand-wound, solar, kinetic or quartz), and a movement filter
+  narrows the list, with "Mechanical" covering automatic and hand-wound. Titles
+  that name no movement are left untagged rather than guessed, and
+  "Automatic Calendar" or "automatic date" counts as a quartz feature.
 
 Settings persist in the browser's local storage, so they survive a dashboard
 regeneration. **Reset** clears them.
