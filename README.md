@@ -85,6 +85,13 @@ Controls apply to both views:
   flat amount, and every row shows what it would actually cost:
   `10% off capped at ₹1,500` turns a ₹33,999 SSD into ₹32,499 and a ₹12,578
   monitor into ₹11,320. Sorting by price then ranks on that effective price.
+- **Storage** (SSD / HDD) - every drive shows its price per TB, and the
+  cheapest SSD and cheapest HDD under the current filters are named side by
+  side. Set a **target** (in TB or GB) and each drive also shows how many you
+  would need and what they cost in total, e.g. a 4 TB target from 1 TB drives
+  is `4 × = ₹21,596`. Sort by **Storage ₹ per TB** or **Storage total for
+  target** to rank them. Capacity is read from the listing title in drive-maker
+  units (1 TB = 1000 GB), and both respect any offer you have set.
 
 Settings persist in the browser's local storage, so they survive a dashboard
 regeneration. **Reset** clears them.

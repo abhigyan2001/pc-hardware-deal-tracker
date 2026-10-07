@@ -172,9 +172,14 @@ def build_rows(conn) -> list[dict]:
         # Re-checked here, not just at scrape time, so tightening a category
         # filter drops old listings off the dashboard straight away while their
         # price history stays in the database.
-        if not config.is_relevant({"title": p["title"], "price": price},
-                                  config.CATEGORIES.get(p["category"])):
+        cfg = config.CATEGORIES.get(p["category"])
+        if not config.is_relevant({"title": p["title"], "price": price}, cfg):
             continue
+
+        # Only storage gets a capacity; the dashboard uses it for price per TB.
+        # Decimal units, as drives are sold, so "1000 GB" and "1 TB" compare equal.
+        capacity = (config.max_capacity_gb(p["title"] or "", gb_per_tb=1000)
+                    if config.is_storage(cfg) else 0)
 
         prev = points[-2]["price"] if len(points) >= 2 else None
         drop_abs = (prev - price) if prev and prev > price else None
@@ -204,6 +209,7 @@ def build_rows(conn) -> list[dict]:
             "image": p["image"],
             "rating": p["rating"],
             "price": price,
+            "capacity_gb": capacity or None,
             "mrp": mrp,
             "badge_pct": badge,
             "prev_price": prev,

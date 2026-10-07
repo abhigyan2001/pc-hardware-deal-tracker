@@ -162,16 +162,29 @@ CATEGORIES = {
     },
 }
 
-_CAPACITY_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(tb|gb)\b", re.IGNORECASE)
+# The lookbehind stops model numbers being read as sizes ("GP-AG42TB" is a
+# 2 TB drive, not 42 TB), and the lookahead skips link speeds like "6 Gb/s".
+# Both matter now that capacity drives the price-per-TB ranking, where one
+# misread title would sit at the top of the list.
+_CAPACITY_RE = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s*(tb|gb)\b(?!\s*/\s*s)",
+                          re.IGNORECASE)
 
 
-def max_capacity_gb(title: str) -> float:
-    """Largest storage size named in a title, in GB. 0 when none is found."""
+def max_capacity_gb(title: str, gb_per_tb: int = 1024) -> float:
+    """Largest storage size named in a title, in GB. 0 when none is found.
+
+    Pass gb_per_tb=1000 for drive-maker units, where a "1000 GB" listing and a
+    "1 TB" listing are the same drive."""
     best = 0.0
     for amount, unit in _CAPACITY_RE.findall(title):
-        gb = float(amount) * (1024 if unit.lower() == "tb" else 1)
+        gb = float(amount) * (gb_per_tb if unit.lower() == "tb" else 1)
         best = max(best, gb)
     return best
+
+
+def is_storage(cfg: dict | None) -> bool:
+    """Categories sized by capacity, which get price-per-TB on the dashboard."""
+    return bool(cfg and cfg.get("min_capacity_gb"))
 
 
 def is_relevant(item: dict, cfg: dict | None) -> bool:
