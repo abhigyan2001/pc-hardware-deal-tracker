@@ -89,7 +89,17 @@ jobs:
             echo "No changes to commit."
           else
             git commit -m "Price data $(date -u '+%Y-%m-%d %H:%M UTC')"
-            git push
+            for attempt in 1 2 3; do
+              if git push; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "Push failed after 3 attempts." >&2
+                exit 1
+              fi
+              echo "Push rejected, rebasing on latest main and retrying..."
+              git pull --rebase origin main
+            done
           fi
 
       # Pages serves index.html from the root of the uploaded directory.
